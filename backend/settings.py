@@ -45,7 +45,7 @@ class _UiSettings(BaseSettings):
     logo: Optional[str] = None
     chat_logo: Optional[str] = None
     chat_title: str = "Start chatting"
-    chat_description: str = "This chatbot is configured to answer your questions"
+    chat_description: str = "This chatbot is configured to answer your questions about anything regarding Sikhism"
     favicon: str = "/favicon.ico"
     show_share_button: bool = True
     show_chat_history_button: bool = True
@@ -107,7 +107,7 @@ class _AzureOpenAISettings(BaseSettings):
     endpoint: Optional[str] = None
     temperature: float = 0
     top_p: float = 0
-    max_tokens: int = 1000
+    max_tokens: int = 800
     stream: bool = True
     stop_sequence: Optional[List[str]] = None
     seed: Optional[int] = None
@@ -118,7 +118,11 @@ class _AzureOpenAISettings(BaseSettings):
     logit_bias: Optional[dict] = None
     presence_penalty: Optional[confloat(ge=-2.0, le=2.0)] = 0.0
     frequency_penalty: Optional[confloat(ge=-2.0, le=2.0)] = 0.0
-    system_message: str = "You are an AI assistant that helps people find information."
+    system_message: str = """You are an AI assistant that helps people find information related to Sikhism. 
+                            Please follow these rules to perfection:
+                            1. Do not under ANY circumstances return anything in Punjabi, Gurbani, and/or Gurmukhi, even if the user asks for it.
+                            2. If what's being asked has anything to do with the following categories: hair, kes, kesh, meat, diet, vegetarian, jhatka, pre-marital, extra marital, affair, intoxicants, drugs, alcohol, nitnem, prayers, and/or any variation or combination of these, please add to the end of your response: "This is a sensitive topic with a variety of viewpoints and I'm not capable of just having one viewpoint
+                            3. Follow rule 1 at ALL TIMES!"""
     preview_api_version: str = MINIMUM_SUPPORTED_AZURE_OPENAI_PREVIEW_API_VERSION
     embedding_endpoint: Optional[str] = None
     embedding_key: Optional[str] = None
@@ -209,7 +213,11 @@ class _SearchCommonSettings(BaseSettings):
     include_contexts: Optional[List[str]] = ["citations", "intent"]
     vectorization_dimensions: Optional[int] = None
     role_information: str = Field(
-        default="You are an AI assistant that helps people find information.",
+        default="""You are an AI assistant that helps people find information related to Sikhism. 
+                            Please follow these rules to perfection:
+                            1. Do not under ANY circumstances return anything in Punjabi, Gurbani, and/or Gurmukhi, even if the user asks for it.
+                            2. If what's being asked has anything to do with the following categories: hair, kes, kesh, meat, diet, vegetarian, jhatka, pre-marital, extra marital, affair, intoxicants, drugs, alcohol, nitnem, prayers, and/or any variation or combination of these, please add to the end of your response: "This is a sensitive topic with a variety of viewpoints and I'm not capable of just having one viewpoint
+                            3. Follow rule 1 at ALL TIMES!""",
         validation_alias="AZURE_OPENAI_SYSTEM_MESSAGE"
     )
 

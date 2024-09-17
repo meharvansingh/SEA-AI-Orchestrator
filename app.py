@@ -5,6 +5,7 @@ import logging
 import uuid
 import httpx
 import asyncio
+import re
 from quart import (
     Blueprint,
     Quart,
@@ -205,6 +206,20 @@ async def init_cosmosdb_client():
 
     return cosmos_conversation_client
 
+# Function to check for non-English (Punjabi/Gurmukhi) characters
+def contains_non_english(text):
+    # Punjabi/Gurmukhi Unicode range (U+0A00–U+0A7F)
+    punjabi_regex = re.compile(r'[\u0A00-\u0A7F]+')
+    return bool(punjabi_regex.search(text))
+
+# Capture the response into a single string (whether streaming or non-streaming)
+async def capture_response(response_generator):
+    full_response = ""
+    async for chunk in response_generator:
+        # Assume chunk is a dict that has the content in "choices[0].delta.content"
+        content = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+        full_response += content
+    return full_response
 
 def prepare_model_args(request_body, request_headers):
     request_messages = request_body.get("messages", [])
@@ -383,25 +398,36 @@ async def stream_chat_request(request_body, request_headers):
 
     return generate()
 
+async def handle_response(request_body, request_headers):
+    model_args = prepare_model_args(request_body, request_headers)
+    
+    # Initialize the OpenAI client
+    azure_openai_client = await init_openai_client()
+
+    # Capture the full response (streaming or non-streaming)
+    if app_settings.azure_openai.stream:
+        # Streaming mode
+        raw_response = await azure_openai_client.chat.completions.create(**model_args)
+        full_response = await capture_response(raw_response)  # Capture full response
+    else:
+        # Non-streaming mode
+        raw_response = await azure_openai_client.chat.completions.with_raw_response.create(**model_args)
+        full_response = raw_response['choices'][0]['message']['content']  # Directly grab content
+
+    # Check for non-English characters (Punjabi/Gurmukhi)
+    if contains_non_english(full_response):
+        return "[Blocked Content: Non-English characters detected]"
+
+    # Return the cleaned response
+    return full_response
 
 async def conversation_internal(request_body, request_headers):
     try:
-        if app_settings.azure_openai.stream and not app_settings.base_settings.use_promptflow:
-            result = await stream_chat_request(request_body, request_headers)
-            response = await make_response(format_as_ndjson(result))
-            response.timeout = None
-            response.mimetype = "application/json-lines"
-            return response
-        else:
-            result = await complete_chat_request(request_body, request_headers)
-            return jsonify(result)
-
+        result = await handle_response(request_body, request_headers)
+        return jsonify({"response": result})
     except Exception as ex:
         logging.exception(ex)
-        if hasattr(ex, "status_code"):
-            return jsonify({"error": str(ex)}), ex.status_code
-        else:
-            return jsonify({"error": str(ex)}), 500
+        return jsonify({"error": str(ex)}), 500
 
 
 @bp.route("/conversation", methods=["POST"])
