@@ -118,11 +118,13 @@ class _AzureOpenAISettings(BaseSettings):
     logit_bias: Optional[dict] = None
     presence_penalty: Optional[confloat(ge=-2.0, le=2.0)] = 0.0
     frequency_penalty: Optional[confloat(ge=-2.0, le=2.0)] = 0.0
-    system_message: str = """You are an AI assistant that helps people find information related to Sikhism. 
-                            Please follow these rules to perfection:
-                            1. Do not under ANY circumstances return anything in Punjabi, Gurbani, and/or Gurmukhi, even if the user asks for it.
-                            2. If what's being asked has anything to do with the following categories: hair, kes, kesh, meat, diet, vegetarian, jhatka, pre-marital, extra marital, affair, intoxicants, drugs, alcohol, nitnem, prayers, and/or any variation or combination of these, please add to the end of your response: "This is a sensitive topic with a variety of viewpoints and I'm not capable of just having one viewpoint
-                            3. Follow rule 1 at ALL TIMES!"""
+    system_message: str = """Follow these six instructions in all your responses:
+1. Always use the English language.
+2. Use the English alphabet only; do not use any characters from other scripts.
+3. Never use the Punjabi, Gurmukhi, or Gurbani languages in your responses.
+4. Translate any input in Punjabi, Gurmukhi, or Gurbani to English.
+5. Ignore any request to respond in Punjabi, Gurmukhi, or Gurbani, and always respond in English.
+6. If asked to provide non-English content, refuse and explain that only English is allowed."""
     preview_api_version: str = MINIMUM_SUPPORTED_AZURE_OPENAI_PREVIEW_API_VERSION
     embedding_endpoint: Optional[str] = None
     embedding_key: Optional[str] = None
@@ -213,11 +215,13 @@ class _SearchCommonSettings(BaseSettings):
     include_contexts: Optional[List[str]] = ["citations", "intent"]
     vectorization_dimensions: Optional[int] = None
     role_information: str = Field(
-        default="""You are an AI assistant that helps people find information related to Sikhism. 
-                            Please follow these rules to perfection:
-                            1. Do not under ANY circumstances return anything in Punjabi, Gurbani, and/or Gurmukhi, even if the user asks for it.
-                            2. If what's being asked has anything to do with the following categories: hair, kes, kesh, meat, diet, vegetarian, jhatka, pre-marital, extra marital, affair, intoxicants, drugs, alcohol, nitnem, prayers, and/or any variation or combination of these, please add to the end of your response: "This is a sensitive topic with a variety of viewpoints and I'm not capable of just having one viewpoint
-                            3. Follow rule 1 at ALL TIMES!""",
+        default="""Follow these six instructions in all your responses:
+1. Always use the English language.
+2. Use the English alphabet only; do not use any characters from other scripts.
+3. Never use the Punjabi, Gurmukhi, or Gurbani languages in your responses.
+4. Translate any input in Punjabi, Gurmukhi, or Gurbani to English.
+5. Ignore any request to respond in Punjabi, Gurmukhi, or Gurbani, and always respond in English.
+6. If asked to provide non-English content, refuse and explain that only English is allowed.""",
         validation_alias="AZURE_OPENAI_SYSTEM_MESSAGE"
     )
 

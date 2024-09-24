@@ -5,7 +5,6 @@ import logging
 import uuid
 import httpx
 import asyncio
-import re
 from quart import (
     Blueprint,
     Quart,
@@ -206,33 +205,26 @@ async def init_cosmosdb_client():
 
     return cosmos_conversation_client
 
-# Function to check for non-English (Punjabi/Gurmukhi) characters
-def contains_non_english(text):
-    # Punjabi/Gurmukhi Unicode range (U+0A00–U+0A7F)
-    punjabi_regex = re.compile(r'[\u0A00-\u0A7F]+')
-    return bool(punjabi_regex.search(text))
-
-# Capture the response into a single string (whether streaming or non-streaming)
-async def capture_response(response_generator):
-    full_response = ""
-    async for chunk in response_generator:
-        # Assume chunk is a dict that has the content in "choices[0].delta.content"
-        content = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
-        full_response += content
-    return full_response
+POST_PROMPT = """
+Do not provide any responses in Gurmukhi, Punjabi, or Gurbani. Always respond in English only. If the user requests anything in these languages or asks for Gurbani lines, refuse and say that you cannot provide content in these languages or scripts.
+"""
 
 def prepare_model_args(request_body, request_headers):
     request_messages = request_body.get("messages", [])
     messages = []
-    if not app_settings.datasource:
-        messages = [
-            {
-                "role": "system",
-                "content": app_settings.azure_openai.system_message
-            }
-        ]
 
-    for message in request_messages:
+    # Add the system message at the start of the conversation
+    if not app_settings.datasource:
+        if len(request_messages) == 0:
+            messages = [
+                {
+                    "role": "system",
+                    "content": app_settings.azure_openai.system_message
+                }
+            ]
+
+    # Process request messages and append the post-prompt to the last user message
+    for idx, message in enumerate(request_messages):
         if message:
             if message["role"] == "assistant" and "context" in message:
                 context_obj = json.loads(message["context"])
@@ -244,20 +236,32 @@ def prepare_model_args(request_body, request_headers):
                     }
                 )
             else:
-                messages.append(
-                    {
-                        "role": message["role"],
-                        "content": message["content"]
-                    }
-                )
+                # For the last user message, append the post-prompt
+                if idx == len(request_messages) - 1 and message["role"] == "user":
+                    modified_user_message = message["content"] + POST_PROMPT
+                    messages.append(
+                        {
+                            "role": message["role"],
+                            "content": modified_user_message
+                        }
+                    )
+                else:
+                    messages.append(
+                        {
+                            "role": message["role"],
+                            "content": message["content"]
+                        }
+                    )
 
+    # Add MS Defender integration if enabled
     user_json = None
-    if (MS_DEFENDER_ENABLED):
+    if MS_DEFENDER_ENABLED:
         authenticated_user_details = get_authenticated_user_details(request_headers)
         conversation_id = request_body.get("conversation_id", None)
         application_name = app_settings.ui.title
         user_json = get_msdefender_user_json(authenticated_user_details, request_headers, conversation_id, application_name)
 
+    # Prepare the model arguments
     model_args = {
         "messages": messages,
         "temperature": app_settings.azure_openai.temperature,
@@ -269,6 +273,7 @@ def prepare_model_args(request_body, request_headers):
         "user": user_json
     }
 
+    # If there is a datasource, add its configuration to the model args
     if app_settings.datasource:
         model_args["extra_body"] = {
             "data_sources": [
@@ -278,43 +283,32 @@ def prepare_model_args(request_body, request_headers):
             ]
         }
 
+    # Clean the model arguments for logging, obscuring sensitive information
     model_args_clean = copy.deepcopy(model_args)
     if model_args_clean.get("extra_body"):
         secret_params = [
-            "key",
-            "connection_string",
-            "embedding_key",
-            "encoded_api_key",
-            "api_key",
+            "key", "connection_string", "embedding_key", "encoded_api_key", "api_key"
         ]
         for secret_param in secret_params:
-            if model_args_clean["extra_body"]["data_sources"][0]["parameters"].get(
-                secret_param
-            ):
-                model_args_clean["extra_body"]["data_sources"][0]["parameters"][
-                    secret_param
-                ] = "*****"
-        authentication = model_args_clean["extra_body"]["data_sources"][0][
-            "parameters"
-        ].get("authentication", {})
+            if model_args_clean["extra_body"]["data_sources"][0]["parameters"].get(secret_param):
+                model_args_clean["extra_body"]["data_sources"][0]["parameters"][secret_param] = "*****"
+        
+        # Obscure any authentication information
+        authentication = model_args_clean["extra_body"]["data_sources"][0]["parameters"].get("authentication", {})
         for field in authentication:
             if field in secret_params:
-                model_args_clean["extra_body"]["data_sources"][0]["parameters"][
-                    "authentication"
-                ][field] = "*****"
-        embeddingDependency = model_args_clean["extra_body"]["data_sources"][0][
-            "parameters"
-        ].get("embedding_dependency", {})
+                model_args_clean["extra_body"]["data_sources"][0]["parameters"]["authentication"][field] = "*****"
+        
+        embeddingDependency = model_args_clean["extra_body"]["data_sources"][0]["parameters"].get("embedding_dependency", {})
         if "authentication" in embeddingDependency:
             for field in embeddingDependency["authentication"]:
                 if field in secret_params:
-                    model_args_clean["extra_body"]["data_sources"][0]["parameters"][
-                        "embedding_dependency"
-                    ]["authentication"][field] = "*****"
+                    model_args_clean["extra_body"]["data_sources"][0]["parameters"]["embedding_dependency"]["authentication"][field] = "*****"
 
     logging.debug(f"REQUEST BODY: {json.dumps(model_args_clean, indent=4)}")
 
     return model_args
+
 
 
 async def promptflow_request(request):
@@ -398,36 +392,25 @@ async def stream_chat_request(request_body, request_headers):
 
     return generate()
 
-async def handle_response(request_body, request_headers):
-    model_args = prepare_model_args(request_body, request_headers)
-    
-    # Initialize the OpenAI client
-    azure_openai_client = await init_openai_client()
-
-    # Capture the full response (streaming or non-streaming)
-    if app_settings.azure_openai.stream:
-        # Streaming mode
-        raw_response = await azure_openai_client.chat.completions.create(**model_args)
-        full_response = await capture_response(raw_response)  # Capture full response
-    else:
-        # Non-streaming mode
-        raw_response = await azure_openai_client.chat.completions.with_raw_response.create(**model_args)
-        full_response = raw_response['choices'][0]['message']['content']  # Directly grab content
-
-    # Check for non-English characters (Punjabi/Gurmukhi)
-    if contains_non_english(full_response):
-        return "[Blocked Content: Non-English characters detected]"
-
-    # Return the cleaned response
-    return full_response
 
 async def conversation_internal(request_body, request_headers):
     try:
-        result = await handle_response(request_body, request_headers)
-        return jsonify({"response": result})
+        if app_settings.azure_openai.stream and not app_settings.base_settings.use_promptflow:
+            result = await stream_chat_request(request_body, request_headers)
+            response = await make_response(format_as_ndjson(result))
+            response.timeout = None
+            response.mimetype = "application/json-lines"
+            return response
+        else:
+            result = await complete_chat_request(request_body, request_headers)
+            return jsonify(result)
+
     except Exception as ex:
         logging.exception(ex)
-        return jsonify({"error": str(ex)}), 500
+        if hasattr(ex, "status_code"):
+            return jsonify({"error": str(ex)}), ex.status_code
+        else:
+            return jsonify({"error": str(ex)}), 500
 
 
 @bp.route("/conversation", methods=["POST"])
